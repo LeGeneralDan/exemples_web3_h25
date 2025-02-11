@@ -18,10 +18,12 @@ namespace TacheApi.Controllers
     public class EtapesController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly Auth0Service _auth0Service;
 
-        public EtapesController(AppDbContext context)
+        public EtapesController(AppDbContext context, Auth0Service auth0Service)
         {
             _context = context;
+            _auth0Service = auth0Service;
         }
 
         [Authorize]
@@ -31,6 +33,7 @@ namespace TacheApi.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)] // L'EtapeUpsertDTO reçu est invalide
         [ProducesResponseType(StatusCodes.Status401Unauthorized)] // Il est possible que l'utilisateur ne soit pas authentifié
         [ProducesResponseType(StatusCodes.Status404NotFound)] // Il est possible que l'étape n'existe pas
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [HttpPut("{idEtape}")]
         public async Task<IActionResult> PutEtape(
             [Description("L'identifiant de la tâche")] long idTache,
@@ -47,6 +50,11 @@ namespace TacheApi.Controllers
             if (etape == null)
             {
                 return NotFound();
+            }
+
+            if (!TacheAppartientAUtilisateur(idTache, User))
+            {
+                return Forbid();        // 401: unauthorised = utilisateur pas connecte
             }
 
             // Applique les modifications à l'étape
@@ -112,6 +120,11 @@ namespace TacheApi.Controllers
                 return NotFound();
             }
 
+            if (!TacheAppartientAUtilisateur(idTache, User))
+            {
+                return Forbid();        // 401: unauthorised = utilisateur pas connecte
+            }
+
             _context.Etapes.Remove(etape);
             await _context.SaveChangesAsync();
 
@@ -126,6 +139,11 @@ namespace TacheApi.Controllers
         private bool TacheExiste(long id)
         {
             return _context.Taches.Any(e => e.Id == id);
+        }
+
+        private bool TacheAppartientAUtilisateur(long tacheId, ClaimsPrincipal utilisateur)
+        {
+            return _context.Taches.Any(tache => tache.Id == tacheId && tache.UserId == _auth0Service.ObtenirIdUtilisateur(utilisateur));
         }
     }
 }

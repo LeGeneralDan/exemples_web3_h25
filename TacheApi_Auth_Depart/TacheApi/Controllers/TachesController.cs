@@ -18,10 +18,12 @@ namespace TacheApi.Controllers
     [ApiController]
     public class TachesController : ControllerBase
     {
+        private readonly Auth0Service _auth0Service;
         private readonly AppDbContext _context;
 
-        public TachesController(AppDbContext context)
+        public TachesController(AppDbContext context, Auth0Service auth0Service)
         {
+            _auth0Service = auth0Service;
             _context = context;
         }
 
@@ -34,6 +36,7 @@ namespace TacheApi.Controllers
         public async Task<ActionResult<IEnumerable<TacheDTO>>> GetTaches()
         {
             return await _context.Taches // Récupère les tâches
+                .Where(tache => tache.UserId == _auth0Service.ObtenirIdUtilisateur(User))
                 .Select(tache => new TacheDTO(tache)) // Transforme les tâches en TacheDTO
                 .ToListAsync(); // Récupère les tâches sous forme de liste
         }
@@ -44,6 +47,7 @@ namespace TacheApi.Controllers
         [ProducesResponseType<TacheDetailsDTO>(StatusCodes.Status200OK, "application/json")]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [HttpGet("{id}")]
         public async Task<ActionResult<TacheDetailsDTO>> GetTache(
             [Description("L'identifiant de la tâche à récupérer")] long id)
@@ -57,6 +61,11 @@ namespace TacheApi.Controllers
                 return NotFound();
             }
 
+            if (!TacheAppartientAUtilisateur(id, User))
+            {
+                return Forbid();        // 401: unauthorised = utilisateur pas connecte
+            }
+
             return new TacheDetailsDTO(tache);
         }
 
@@ -67,6 +76,7 @@ namespace TacheApi.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [HttpPut("{id}")]
         public async Task<IActionResult> PutTache(
             [Description("L'identifiant de la tâche à modifier")] long id,
@@ -77,6 +87,11 @@ namespace TacheApi.Controllers
             if (tache == null)
             {
                 return NotFound();
+            }
+
+            if (!TacheAppartientAUtilisateur(id, User))
+            {
+                return Forbid();        // 401: unauthorised = utilisateur pas connecte
             }
 
             tache.AppliquerUpsertDTO(tacheDTO);
@@ -97,7 +112,8 @@ namespace TacheApi.Controllers
             [FromBody][Description("La tâche à ajouter")] TacheUpsertDTO tacheDTO)
         {
             Tache tache = new Tache(
-                tacheDTO
+                tacheDTO,
+                _auth0Service.ObtenirIdUtilisateur(User)
             );
             _context.Taches.Add(tache);
             await _context.SaveChangesAsync();
@@ -129,10 +145,20 @@ namespace TacheApi.Controllers
                 return NotFound();
             }
 
+            if (!TacheAppartientAUtilisateur(id, User))
+            {
+                return Forbid();        // 401: unauthorised = utilisateur pas connecte
+            }
+
             _context.Taches.Remove(tache);
             await _context.SaveChangesAsync();
 
             return NoContent();
+        }
+
+        private bool TacheAppartientAUtilisateur(long tacheId, ClaimsPrincipal utilisateur)
+        {
+            return _context.Taches.Any(tache => tache.Id == tacheId && tache.UserId == _auth0Service.ObtenirIdUtilisateur(utilisateur));
         }
     }
 }
